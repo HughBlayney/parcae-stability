@@ -143,6 +143,11 @@ def setup_fabric(cfg: CLISettings, wandb_run_id: Optional[str] = None) -> Fabric
             logger_kwargs["id"] = wandb_run_id
             logger_kwargs["resume"] = "allow"
         logger = WandbLogger(**logger_kwargs)
+    elif cfg.logger_name == "csv":
+        # Local CSV logging (no network / API key needed). Metrics land in {out_dir}/logs/{run_name}/metrics.csv
+        from lightning.fabric.loggers import CSVLogger
+
+        logger = CSVLogger(root_dir=cfg.out_dir, name="logs", version=cfg.run_name, flush_logs_every_n_steps=1)
     else:
         raise ValueError(f"`logger={cfg.logger_name}` is not a valid option.")
 
@@ -1018,6 +1023,7 @@ def create_dataloader(
                 return_data_id=curr_config.return_data_id,
                 prefix=curr_config.prefix,
                 stateful=stateful,
+                plan_for_later_rank_expansion_to=cfg.parquet_rank_expansion,
                 tokenizer=tokenizer,  # Pass tokenizer for raw text tokenization
             )
         elif curr_config.type == "rngds":  # debug option

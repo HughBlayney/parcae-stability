@@ -452,7 +452,11 @@ class Parcae(torch.nn.Module):
                 n = torch.poisson(torch.tensor([t], dtype=torch.float), generator=n_generator)
                 k = torch.as_tensor(s)
             elif "poisson-truncated-full" in self.config.sampling_scheme:
-                n = torch.clamp(torch.poisson(torch.tensor([t + s], dtype=torch.float), generator=n_generator), min=1)
+                # max=None is a no-op, so the default config is unchanged; max_recurrence caps total depth T
+                n = torch.clamp(
+                    torch.poisson(torch.tensor([t + s], dtype=torch.float), generator=n_generator),
+                    min=1, max=self.config.max_recurrence,
+                )
                 k = torch.clamp(n, max=s)
             elif "poisson-full" in self.config.sampling_scheme:
                 n = torch.as_tensor(0)
@@ -518,7 +522,11 @@ class Parcae(torch.nn.Module):
         
         # Sample on CPU - per batch element (or per token if seq_len provided)
         if "poisson-truncated-full" in self.config.sampling_scheme:
-            total = torch.clamp(torch.poisson(torch.full(shape, float(t + s)), generator=generator), min=1)
+            # max=None is a no-op, so the default config is unchanged; max_recurrence caps total depth T
+            total = torch.clamp(
+                torch.poisson(torch.full(shape, float(t + s)), generator=generator),
+                min=1, max=self.config.max_recurrence,
+            )
             k = torch.clamp(total, max=s)
             n = total - k
         elif "poisson-full" in self.config.sampling_scheme:
@@ -623,5 +631,10 @@ class Parcae(torch.nn.Module):
                 metrics["extreme/adapter_We_spectral_norm"] = S_e[0].item()
             else:
                 metrics["extreme/adapter_spectral_norm"] = torch.linalg.svdvals(W)[0].item()
+
+        # Diagonal injection: log the state-carry multiplier (learned per channel, or the fixed scalar)
+        if hasattr(adapter, "get_spectral_norm") and hasattr(adapter, "get_contraction_factor"):
+            metrics["extreme/adapter_decay_max"] = adapter.get_spectral_norm()
+            metrics["extreme/adapter_decay_mean"] = adapter.get_contraction_factor()
         
         return metrics

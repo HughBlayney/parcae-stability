@@ -197,6 +197,10 @@ class CLISettings:
     # BOS-aligned best-fit packing (nanochat-style): packs documents to 100% utilization, no padding.
     pack_sequences: bool = False  # Whether to use best-fit document packing instead of padding.
     pack_buffer_size: int = 1000  # Number of documents to buffer for best-fit selection.
+    # ParquetStreamPure partitions parquet files across ranks with stride max(this, world_size); files whose index
+    # mod stride >= world_size are never read. 8 (upstream default) lets a run resume on up to 8 ranks with the same
+    # file assignment; set 0 to use exactly world_size so every downloaded shard is used (needs >= world_size files).
+    parquet_rank_expansion: int = 8
     data_signature: dict[str, list[str] | str] = field(
         default_factory=lambda: {"keys": ["text"], "format_fn": "pass_text"}
     )  # The data signature to use for processing rows of the dataset. Can be set individually per dataset. (HFDS only).

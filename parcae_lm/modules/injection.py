@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch
 from torch import Tensor
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from parcae_lm.models.parcae.config import ParcaeConfig
@@ -12,6 +12,13 @@ class DiagonalInjection(nn.Module):
     Parcae Diagonal Injection
     
     x_{t+1} = exp(- dt * A) * x_t + dt * B @ e
+
+    If ``config.injection_fixed_decay`` is set (stability-extrapolation experiment), the learned per-channel
+    decay exp(-dt * A) is replaced by that scalar for every channel and ``A_log`` is not created:
+
+    x_{t+1} = rho * x_t + dt * B @ e,  rho = config.injection_fixed_decay
+
+    ``dt_bias`` and ``B`` are unchanged, so the injection term is identical to the learned variant at init.
     """
     def __init__(
         self,
@@ -26,9 +33,14 @@ class DiagonalInjection(nn.Module):
         state_dim = config.recurrent_embedding_dimension
         input_dim = config.n_embd
 
-        self.A_log = nn.Parameter(torch.empty(state_dim))
-        config.init.fn("ssm_A_log", layer_id)(self.A_log)
-        self.A_log._no_weight_decay = True
+        self.fixed_decay: Optional[float] = getattr(config, "injection_fixed_decay", None)
+        if self.fixed_decay is None:
+            self.A_log = nn.Parameter(torch.empty(state_dim))
+            config.init.fn("ssm_A_log", layer_id)(self.A_log)
+            self.A_log._no_weight_decay = True
+        else:
+            self.fixed_decay = float(self.fixed_decay)
+            self.register_parameter("A_log", None)  # explicitly absent; state_dict has no A_log entry
         
         self.dt_bias = nn.Parameter(torch.empty(state_dim))
         config.init.fn("ssm_dt_bias", layer_id)(self.dt_bias)
@@ -39,25 +51,29 @@ class DiagonalInjection(nn.Module):
         config.init.fn("ssm_B_identity", layer_id)(self.B)
         self.B._no_weight_decay = True
 
-    def forward(self, x_t: Tensor, e: Tensor) -> Tensor:
+    def _decay(self) -> Tensor | float:
+        """Per-channel state multiplier: a tensor of shape [state_dim] (learned) or a Python float (fixed)."""
+        if self.fixed_decay is not None:
+            return self.fixed_decay
         dt = nn.functional.softplus(self.dt_bias)
         A = torch.exp(self.A_log)
-        decay = torch.exp(-dt * A)
-        return x_t * decay + dt * (e @ self.B.T)
+        return torch.exp(-dt * A)
+
+    def forward(self, x_t: Tensor, e: Tensor) -> Tensor:
+        dt = nn.functional.softplus(self.dt_bias)
+        return x_t * self._decay() + dt * (e @ self.B.T)
 
     @torch.no_grad()
     def get_spectral_norm(self) -> float:
-        dt = nn.functional.softplus(self.dt_bias)
-        A = torch.exp(self.A_log)
-        decay = torch.exp(-dt * A)
-        return decay.max().item()
+        """Spectral radius of the linear state-carry map (max over channels)."""
+        decay = self._decay()
+        return decay if isinstance(decay, float) else decay.max().item()
 
     @torch.no_grad()
     def get_contraction_factor(self) -> float:
-        dt = nn.functional.softplus(self.dt_bias)
-        A = torch.exp(self.A_log)
-        decay = torch.exp(-dt * A)
-        return decay.mean().item()
+        """Mean over channels of the state-carry multiplier."""
+        decay = self._decay()
+        return decay if isinstance(decay, float) else decay.mean().item()
 
 
 class LinearInjection(nn.Module):
