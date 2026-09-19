@@ -1,5 +1,5 @@
 #!/bin/bash
-# Stability sweep smoke test on the civo cluster (stability_extrapolation_next_steps.md, Sections 0 + 3).
+# Stability sweep smoke test on the civo cluster (stability_extrapolation_status.md, Sections 1 and 4).
 # One H200 NVL GPU, ~30-45 min: unit tests -> 30 training steps on the real data (checkpoint at the last step)
 # -> scripts/eval.py reload with --override_mean_recurrence 16 -> scripts/check_state_norm.py depth curve
 # -> metrics.csv sanity summary. Outputs go to /datasets/scro3801/parcae-outputs/stab/smoke (delete afterwards).
@@ -69,7 +69,7 @@ df = pd.read_csv(sys.argv[1])
 print("columns:", len(df.columns), "rows:", len(df))
 val_cols = sorted(c for c in df.columns if c.startswith("val_ppl_"))
 print("val_ppl columns:", val_cols)
-# NB: the CSV logger's names, not the ones in stability_extrapolation_next_steps.md Section 3:
+# NB: the CSV logger's names (stability_extrapolation_status.md Section 6):
 # "loss" is global_loss/local_loss and "tokens_per_second" is tokens/second.
 for c in ["global_loss", "extreme/adapter_decay_max", "extreme/adapter_decay_mean", "recurrent_state_norm",
           "tokens/second", "seconds/step", "max_mem_per_gpu", "max_mem_reserved_per_gpu",

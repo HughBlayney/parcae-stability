@@ -1,6 +1,6 @@
 # Injection spectral radius vs. test-time recurrence extrapolation in Parcae
 
-**Status:** plan drafted 2026-09-18 by Hugh Blayney with Claude; code implemented and unit-tested 2026-09-18 (branch `exp/stability-extrapolation`); training smoke test partially verified (see next-steps Section 0). Sweep not yet run. Read `stability_extrapolation_next_steps.md` first; the corrections block below overrides the sections it names.
+**Status:** plan drafted 2026-09-18 by Hugh Blayney with Claude; code implemented and unit-tested 2026-09-18 (branch `exp/stability-extrapolation`); pipeline verified end-to-end on the civo cluster 2026-09-19 and all 12 sweep arms submitted. Read `stability_extrapolation_status.md` first for the current state; the corrections block below overrides the sections it names.
 **Repo:** https://github.com/sandyresearch/parcae (this file lives at the repo root; branch off `main` at or after `69284c1`).
 **Paper:** Prairie, Novack, Berg-Kirkpatrick, Fu. *Parcae: Scaling Laws For Stable Looped Language Models.* arXiv 2604.12946.
 
@@ -43,7 +43,7 @@
 > 9. **Section 4.1, `save_step_interval`.** Set to 2048 (about two mid-run checkpoints, ~2 GB each) so preempted jobs can
 >    resume; 100000 would restart preempted runs from scratch.
 >
-> Section 7 of `stability_extrapolation_next_steps.md` lists every file the implementation touched.
+> Section 7 of `stability_extrapolation_status.md` lists every file the implementation touched.
 
 This document is written so that a fresh Claude Code instance on a different cluster can implement the code changes, run the sweep, and produce the analysis without further context. Section 1 is the science; Sections 2 to 6 are the recipe; Section 7 is what to report back.
 

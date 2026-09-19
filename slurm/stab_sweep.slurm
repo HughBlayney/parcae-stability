@@ -1,6 +1,6 @@
 #!/bin/bash
 # Stability-extrapolation sweep on the civo cluster: one array task per arm, one H200 NVL GPU each
-# (see stability_extrapolation_next_steps.md Sections 4-5 and runs/sweep_stability.sh).
+# (see stability_extrapolation_status.md Section 5 and runs/sweep_stability.sh).
 #
 #   sbatch --array=0-3 slurm/stab_sweep.slurm      # headline four: capped Poisson x {learned, 0.25, 1.0, 1.25}
 #   sbatch --array=4-5 slurm/stab_sweep.slurm      # capped Poisson x {0.5, 0.75}
