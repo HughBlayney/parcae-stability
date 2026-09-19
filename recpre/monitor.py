@@ -280,6 +280,10 @@ def _get_peak_flops(fabric_precision, device_name: str) -> int:
             flops = 756e12 * multiplier
         else:  # for SXM and other variants
             flops = 989e12 * multiplier
+    elif "H200" in device_name:
+        # Hopper with more/faster memory than H100 but the same tensor-core compute (SXM and NVL alike):
+        # 989 TFLOP/s dense bf16 (NVIDIA quotes 1979 with sparsity).
+        flops = 989e12 * multiplier
     elif "B200" in device_name or "B300" in device_name:
         # NVIDIA Blackwell B200/B300
         # NOTE: Specifications are one-half lower without sparsity.

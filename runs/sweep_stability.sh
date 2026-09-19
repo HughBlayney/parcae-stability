@@ -60,7 +60,14 @@ for scheme in $SCHEMES; do
         --config "$CONFIG" --out_dir "$OUT" --run_name "$RUN_NAME" --resume $RESUME \
         $ARM_ARGS $EXTRA_TRAIN \
         --logger_group stability-extrapolation 2>&1 | tee -a "$OUT/train.log"
-      touch "$OUT/TRAIN_DONE"
+      # train.py also exits 0 after an emergency (SIGUSR1 / preemption) checkpoint, so only mark the arm
+      # finished when the log shows the orderly end-of-run exit; otherwise stop here and let a resubmission resume.
+      if grep -q "Exiting training orderly after completion" "$OUT/train.log"; then
+        touch "$OUT/TRAIN_DONE"
+      else
+        echo "[$tag] training did not reach the end (preempted or errored); resubmit to resume" >&2
+        exit 3
+      fi
     fi
 
     # ---------------- held-out depth curve (single trajectory, all depths) ----------------
