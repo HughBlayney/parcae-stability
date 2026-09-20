@@ -1015,6 +1015,7 @@ def create_dataloader(
                 seed=seed,
                 shuffle=cfg.shuffle_blocks,
                 shuffle_filenames=cfg.shuffle_filenames,
+                plan_for_later_rank_expansion_to=cfg.plan_for_later_rank_expansion_to,
                 num_processes=fabric.world_size,
                 process_rank=fabric.global_rank,
                 data_id=curr_config.prefix,
@@ -1508,6 +1509,48 @@ def load_checkpoint(fabric, state, out_dir, run_name, model_checkpoint, resume=T
     return resume_ckpt
 
 
+def prune_old_checkpoints(fabric, cfg, prefix: str) -> None:
+    """Delete all but the `cfg.keep_last_n_checkpoints` newest checkpoints.
+
+    Call only after fabric.save() has returned, so a crash mid-save can never leave us with
+    the old checkpoint already deleted and the new one incomplete. Note this means disk usage
+    transiently holds keep_last_n + 1 checkpoints at the moment of pruning.
+
+    Checkpoints are named `step-{microbatch_step:08d}-{run_name}` and, depending on strategy,
+    may be a plain file, a `.pth` file, several rank-suffixed files, or a directory -- so group
+    every path sharing a step number and remove the group together.
+    """
+    keep = cfg.keep_last_n_checkpoints
+    if keep <= 0 or fabric.global_rank != 0:
+        return
+
+    import shutil
+
+    base = Path(cfg.out_dir) / prefix
+    if not base.is_dir():
+        return
+
+    groups: dict[int, list[Path]] = {}
+    for p in base.glob(f"step-*{cfg.run_name}*"):
+        m = re.match(r"step-(\d+)-", p.name)
+        if m:
+            groups.setdefault(int(m.group(1)), []).append(p)
+
+    doomed = sorted(groups)[:-keep]  # everything except the `keep` highest step numbers
+    if not doomed:
+        return
+
+    removed = 0
+    for step in doomed:
+        for p in groups[step]:
+            try:
+                shutil.rmtree(p) if p.is_dir() else p.unlink()
+                removed += 1
+            except OSError as e:
+                fabric.print(f"  Could not remove old checkpoint {p}: {e}")
+    fabric.print(f"  Pruned {removed} file(s) from {len(doomed)} old checkpoint(s), keeping last {keep}")
+
+
 def maybe_save_checkpoint(fabric, state, cfg, is_accumulating=False, force_save=False):
     t0 = time.time()
     prefix = fabric.get_prefix_for_checkpoint()
@@ -1560,6 +1603,7 @@ def maybe_save_checkpoint(fabric, state, cfg, is_accumulating=False, force_save=
                          f"buffer_len={len(ds._state.get('buffer', []))}")
 
         fabric.save(fully_qualified_checkpoint_path, state)
+        prune_old_checkpoints(fabric, cfg, prefix)
         fabric.print(f"------------------- {time.ctime()[:-5]} Checkpoint saved ({time.time() - t0:.02f} seconds)")
 
 

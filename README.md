@@ -159,6 +159,36 @@ Note: these are base models without any form of downstream modification (instruc
 
 The sweep scripts in `runs/` reproduce the scaling law experiments from the paper. See `runs/sweep_recurrence.sh` for recurrence scaling and `runs/sweep_flops.sh` for compute-optimal scaling.
 
+# This fork
+
+This fork adds two experiment families to upstream Parcae, plus infrastructure
+fixes shared by both: H200 peak-FLOPs reporting, checkpoint rotation,
+environment-variable expansion in `tokenizer_path`, explicit file sharding
+across ranks, and batched tokenization in the parquet data path.
+
+## Recurrence-ablated controls
+
+`launch_configs/parcae-*-rec1.yaml` train feedforward controls for the looped
+models: identical architecture, data and token budget, but the core block is
+applied exactly once throughout training (`mean_recurrence: 1`,
+`mean_backprop_depth: 1`, `sampling_scheme: fixed`). Submit them with
+`launch_control.slurm`; `scripts/check_rec1_controls.py` checks a control config
+against its recurrent sibling.
+
+These controls were trained from upstream commit `6e45195` plus the changes on
+this branch. Upstream's distributed data-loading fix (`3808887`, merged as
+`69284c1`) landed after those runs began, so the released control weights were
+produced with `plan_for_later_rank_expansion_to: 0` instead.
+
+`scripts/export_hf.py` converts a Lightning training checkpoint into the
+two-file Hugging Face layout (`config.json` and `pytorch_model.bin`) used by the
+released Parcae models, so controls load through the same code path. Analysis of
+these models lives in the `looped-internals` repository.
+
+## Stability extrapolation
+
+See `stability_extrapolation_plan.md` and `stability_extrapolation_status.md`.
+
 # Citations
 
 ```bibtex
