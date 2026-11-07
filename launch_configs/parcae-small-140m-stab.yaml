@@ -19,7 +19,12 @@ micro_batch_size: 8                 # 24 GB GPUs (A10): 8. 80 GB GPUs (A100/H100
 partial_depth_eval: [1, 2, 4, 12, 16, 24, 32, 64]   # mean_recurrence (8) is appended automatically
 eval_iters: 16
 eval_step_interval: 512
-save_step_interval: 2048            # a couple of mid-run checkpoints for preemption resume (~2 GB each)
+# WARNING: save_step_interval counts MICRO-batch steps, not optimizer steps, so the number of checkpoints written is
+# (optimizer_steps * gradient_accumulation) / interval, and each is ~1.6 GB (140M) or ~4 GB (370M). At 2048 this is 20
+# checkpoints (32 GB) per 140M arm and 55 (223 GB) per 370M arm. Final checkpoint only (save_last_step) unless the
+# partition can preempt or caps walltime below the run length; then set it to
+#   optimizer_steps * gradient_accumulation / (number of mid-run checkpoints you want).
+save_step_interval: 999999999
 save_last_step: True
 extreme_telemetry: True             # logs extreme/adapter_decay_{max,mean} every log step
 logger_name: csv                    # metrics -> {out_dir}/logs/{run_name}/metrics.csv ; use "wandb" if a key is available
