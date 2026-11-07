@@ -223,15 +223,30 @@ class ParquetStreamPure(IterableDataset):
             while self._state["buffer"]:
                 yield torch.as_tensor(self._state["buffer"].pop(), dtype=torch.long)
 
+    def _encode_documents(self, texts):
+        """Tokenize one row group in a single call.
+
+        This replaces a per-document Python loop. The dataloader runs inside the
+        training process (dataloader_num_workers defaults to 0), so tokenization
+        blocks the GPUs; measured runs spent 35-43% of wall time here. Batching
+        lets the Rust tokenizer encode documents in parallel instead.
+
+        The result is identical to encoding one document at a time: batch
+        encoding applies no padding or truncation by default, and
+        add_special_tokens=False is what Tokenizer.encode uses when no bos/eos
+        is requested, which is the case for the pretraining data path.
+        """
+        processor = getattr(self.tokenizer, "processor", None)
+        if processor is None:  # Tokenizer without a HuggingFace backend.
+            return [self.tokenizer.encode(text, return_tensors=False) for text in texts]
+        return processor(texts, add_special_tokens=False)["input_ids"]
+
     def _read_buffer(self, parquet_file):
         batch = parquet_file.read_row_group(self._state["row_group_idx"])
         raw_data = batch.column(self.token_column).to_pylist()
 
         if self.tokenizer is not None and raw_data and isinstance(raw_data[0], str):
-            self._state["buffer"] = [
-                self.tokenizer.encode(text, return_tensors=False) 
-                for text in raw_data
-            ]
+            self._state["buffer"] = self._encode_documents(raw_data)
         else:
             self._state["buffer"] = raw_data
 

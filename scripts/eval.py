@@ -95,10 +95,8 @@ def load_model(settings: CLISettings):
     if settings.checkpoint_path:
         print0(f"Loading checkpoint: {settings.checkpoint_path}")
         state = torch.load(settings.checkpoint_path, map_location="cpu", weights_only=False)
-        if "model" in state:
-            model.load_state_dict(state["model"], strict=False)
-        else:
-            model.load_state_dict(state, strict=False)
+        from receval.models.parcae import load_state_dict_checked
+        load_state_dict_checked(model, state["model"] if "model" in state else state)
 
     model.to(settings.device)
     model.eval()

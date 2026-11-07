@@ -4,6 +4,32 @@ from pathlib import Path
 from typing import Optional, Union
 from parcae_lm.models.parcae import Parcae, ParcaeConfig
 
+def load_state_dict_checked(model: torch.nn.Module, state_dict: dict, strict_params: bool = True):
+    """load_state_dict(strict=False) that refuses to silently skip parameters.
+
+    The eval paths load with strict=False so that benign extras (e.g. buffers) do not abort, but that also hides a
+    checkpoint/config mismatch such as a model built with a learned ``A_log`` while the checkpoint was trained with
+    ``injection_fixed_decay`` (or vice versa). Any missing *parameter* is an error; unexpected keys are printed.
+    """
+    result = model.load_state_dict(state_dict, strict=False)
+    param_names = {n for n, _ in model.named_parameters()}
+    missing_params = [k for k in result.missing_keys if k in param_names]
+    missing_other = [k for k in result.missing_keys if k not in param_names]
+    if result.unexpected_keys:
+        print(f"[load_state_dict_checked] WARNING unexpected keys in checkpoint (ignored): {result.unexpected_keys}")
+    if missing_other:
+        print(f"[load_state_dict_checked] WARNING missing non-parameter keys (left at init): {missing_other}")
+    if missing_params:
+        msg = (
+            f"[load_state_dict_checked] checkpoint is missing {len(missing_params)} parameter(s): {missing_params}. "
+            "The model config does not match the checkpoint (e.g. injection_fixed_decay / A_log)."
+        )
+        if strict_params:
+            raise RuntimeError(msg)
+        print("WARNING " + msg)
+    return result
+
+
 class ModelingParcae(Parcae):
     def __init__(self, config: ParcaeConfig, objective=None, gradient_checkpointing=False) -> None:
         if objective is None:
@@ -44,7 +70,7 @@ class ModelingParcae(Parcae):
                 if k.startswith(prefix):
                     k = k[len(prefix):]
             cleaned[k] = v
-        model.load_state_dict(cleaned, strict=False)
+        load_state_dict_checked(model, cleaned)
         if dtype:
             model = model.to(dtype=dtype)
         if device:

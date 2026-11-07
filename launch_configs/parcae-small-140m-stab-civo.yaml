@@ -1,0 +1,96 @@
+# Stability-extrapolation sweep: parcae-small-140m with a fixed injection spectral radius. civo-cluster copy of
+# parcae-small-140m-stab.yaml (only paths, micro_batch_size and parquet_rank_expansion differ).
+# See stability_extrapolation_plan.md. Per-arm knobs are passed on the CLI by runs/sweep_stability.sh:
+#   --model_overwrite.sampling_scheme {poisson-truncated-full|fixed}
+#   --model_overwrite.injection_fixed_decay <rho>      (omit for the learned control)
+# Everything not listed under "changed vs upstream" is identical to launch_configs/parcae-small-140m.yaml.
+
+run_name: parcae-140m-stab          # overridden per arm on the CLI
+resume: False                       # sweep script passes --resume true when a partial checkpoint exists
+seed: 42
+out_dir: "/datasets/scro3801/parcae-outputs/stab"   # overridden per arm on the CLI; keep off the 50 GB home volume
+model_name: parcae-small-140m
+model_impl: dynamic
+block_size: 2048
+
+# --- changed vs upstream ---
+max_tokens: 2_800_000_000           # ~20 tokens/param; paper budget is 11.2B
+micro_batch_size: 32                # H200 NVL (141 GB) / A100-80GB: 32 as upstream. world_batch_size 256 -> 8 accumulation steps on 1 GPU.
+                                    # world_batch_size stays 256; gradient accumulation fills the gap.
+parquet_rank_expansion: 0           # shard files by world_size so every rank reads its own files (plan corrections item 5)
+partial_depth_eval: [1, 2, 4, 12, 16, 24, 32, 64]   # mean_recurrence (8) is appended automatically
+eval_iters: 16
+eval_step_interval: 512
+save_step_interval: 2048            # a couple of mid-run checkpoints for preemption resume (~2 GB each)
+save_last_step: True
+extreme_telemetry: True             # logs extreme/adapter_decay_{max,mean} every log step
+logger_name: csv                    # metrics -> {out_dir}/logs/{run_name}/metrics.csv ; use "wandb" if a key is available
+logger_project: "parcae-stability"
+
+model_overwrite:
+  vocab_size: 32768
+  prelude_norm: true
+  max_recurrence: 16                # hard cap on sampled training depth T (poisson-truncated-full only)
+  # sampling_scheme / injection_fixed_decay / state_init are set per arm on the CLI
+# --- end changed vs upstream ---
+
+world_batch_size: 256
+
+optimizer: MuonAdamW
+optim_config:
+  lr: 8e-3
+  weight_decay: 0.0
+  betas: [0.8, 0.95]
+  eps: 1e-10
+  muon_lr: 8e-3
+  muon_momentum: 0.95
+  muon_wd: 0.2         # Muon weight decay (cautious, linearly decays to 0)
+  muon_ns_steps: 5
+
+warmup_steps: 0.0
+cooldown_steps: 0.5
+lr_schedule: trapezoid
+min_lr: 0
+grad_clip: 1.0
+no_weight_decay_for_bias_and_norm_params: True
+
+z_regularization: 0
+label_smoothing: 0
+
+fabric_strategy: ddp
+fabric_precision: bf16-mixed
+fabric:
+  optim_sharding: False
+
+compile_model: True
+gradient_checkpointing: False
+
+loss_guardrail_active: True
+skip_nonfinite_grads: True
+allow_nonfinite_loss: False
+
+model_telemetry: True
+log_step_interval: 1
+
+all_block_size_tensors: False
+pack_sequences: True
+
+# civo cluster paths (data already present under /datasets/scro3801/parcae-data; 1822 train shards, 218 val shards).
+# The loader globs **/*.parquet under data_dir.
+data_config:
+  train_data:
+    - type: pqds-pure
+      prefix: ""
+      weight: 1
+      data_dir: "/datasets/scro3801/parcae-data/fineweb-edu-shuffled/sample-100BT/data/sample-100BT/train"
+      data_signature:
+        keys: ["text"]
+  val_data:
+    - type: pqds-pure
+      prefix: ""
+      weight: 1
+      data_dir: "/datasets/scro3801/parcae-data/fineweb-edu-shuffled/val/data/val/train"
+      data_signature:
+        keys: ["text"]
+
+tokenizer_path: "/datasets/scro3801/parcae-data/tokenizer/parcae_tokenizer"

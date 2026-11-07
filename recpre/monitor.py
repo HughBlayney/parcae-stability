@@ -280,6 +280,10 @@ def _get_peak_flops(fabric_precision, device_name: str) -> int:
             flops = 756e12 * multiplier
         else:  # for SXM and other variants
             flops = 989e12 * multiplier
+    elif "H200" in device_name:
+        # Hopper with more/faster memory than H100 but the same tensor-core compute (SXM and NVL alike):
+        # 989 TFLOP/s dense bf16 (NVIDIA quotes 1979 with sparsity).
+        flops = 989e12 * multiplier
     elif "B200" in device_name or "B300" in device_name:
         # NVIDIA Blackwell B200/B300
         # NOTE: Specifications are one-half lower without sparsity.
@@ -301,9 +305,23 @@ def _get_peak_flops(fabric_precision, device_name: str) -> int:
         flops = 53.8e12 * multiplier
     elif "RTX 3050 Ti Laptop" in device_name:
         flops = 21.2e12  # 5.299 / 9.098 * 36.4 # :)
-    else:  # for other GPU types, raise
-        raise ValueError(f"Could not retrieve flops for device {device_name}.")
+    elif "L40S" in device_name:
+        flops = 362e12 * multiplier  # dense fp16/bf16 tensor, https://www.nvidia.com/en-us/data-center/l40s/
+    elif "A30" in device_name:
+        flops = 165e12 * multiplier
+    elif "A10" in device_name:  # A10 / A10G (dense fp16/bf16 tensor; datasheet lists 250 with sparsity)
+        flops = 125e12 * multiplier
+    elif "L4" in device_name:
+        flops = 121e12 * multiplier
+    else:  # unknown GPU: do not abort training over an MFU denominator; log MFU as nan instead
+        if device_name not in _warned_unknown_devices:
+            _warned_unknown_devices.add(device_name)
+            print(f"WARNING: no peak-FLOPs entry for device {device_name!r}; model_flop_utilization will be nan.")
+        return float("nan")
     return int(flops)  # ok up to 1e18
+
+
+_warned_unknown_devices: set[str] = set()
 
 
 # Cache dictionary

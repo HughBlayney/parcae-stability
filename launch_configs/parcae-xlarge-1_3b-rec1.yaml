@@ -1,0 +1,108 @@
+# Recurrence-ablated control for parcae-xlarge-1_3b.
+# Identical to parcae-xlarge-1_3b.yaml except that the core block runs exactly once.
+# Token-matched to the recurrent run (same max_tokens => same data, same optimizer steps).
+#
+# micro_batch_size is tuned for 4 GPUs and requires <= 8 ranks: grad accum is derived as
+# (world_batch_size // num_nodes // devices) // micro_batch_size and asserted > 0, so
+# 256 // devices must be >= micro_batch_size. Drop it back to 8 to run on more ranks.
+run_name: parcae-xlarge-1_3b-rec1
+resume: True
+max_tokens: 104_000_000_000
+seed: 42
+out_dir: "/datasets/scro3801/parcae-outputs/parcae-xlarge-1_3b-rec1"
+model_name: parcae-xlarge-1_3b
+model_impl: dynamic
+block_size: 2048
+
+# Only one depth exists; the eval loop appends mean_recurrence (=1) automatically.
+partial_depth_eval: []
+
+model_overwrite:
+  vocab_size: 32768
+  prelude_norm: true
+  # --- the ablation ---
+  mean_recurrence: 1
+  # Must equal mean_recurrence: the sampler uses t = max(mean_recurrence - mean_backprop_depth, 0)
+  # and s = mean_backprop_depth. Leaving the default 4 would run 4 steps; setting 0 would run the
+  # single step under no_grad and silently never train the core block.
+  mean_backprop_depth: 1
+  # "fixed" => n=t=0, k=s=1 exactly. The default poisson-truncated-full would draw
+  # total = clamp(Poisson(1), min=1), averaging ~1.42 iterations rather than 1.
+  sampling_scheme: fixed
+
+world_batch_size: 256
+micro_batch_size: 32   # 4 GPUs -> grad accum 2. Neutral: world batch is still 256.
+
+optimizer: MuonAdamW
+optim_config:
+  lr: 6e-3
+  weight_decay: 0.0
+  betas: [0.8, 0.95]
+  eps: 1e-10
+  muon_lr: 8e-3
+  muon_momentum: 0.95
+  muon_wd: 0.2
+  muon_ns_steps: 5
+
+warmup_steps: 0.0
+cooldown_steps: 0.5
+lr_schedule: trapezoid
+min_lr: 0
+grad_clip: 1.0
+no_weight_decay_for_bias_and_norm_params: True
+
+z_regularization: 0
+label_smoothing: 0
+
+fabric_strategy: ddp
+fabric_precision: bf16-mixed
+fabric:
+  optim_sharding: False
+
+compile_model: True
+# Off: the recurrent run needs this to hold activations for 8 unrolled iterations, but at
+# recurrence 1 that pressure is gone. Checkpointing only trades compute for memory, so
+# disabling it is numerically neutral and ~25-30% faster.
+gradient_checkpointing: False
+
+loss_guardrail_active: False
+skip_nonfinite_grads: True
+allow_nonfinite_loss: False
+
+logger_project: "parcae"
+model_telemetry: True
+log_step_interval: 1
+# ~397k microbatch steps total -> saves ~24x; rotation keeps only the newest, so this now
+# controls how much work a hard crash costs (~2.7h), not disk usage. This run exceeds the
+# 2-day partition limit and will be requeued, which makes that bound worth keeping tight.
+# Must stay a multiple of gradient_accumulation_steps (2 here): saves only fire on the last
+# microbatch of an accumulation cycle, so an odd interval would never trigger.
+save_step_interval: 16384
+eval_step_interval: 4096
+eval_iters: 16
+save_last_step: True
+keep_last_n_checkpoints: 1   # rotation: delete older checkpoints, keep only the newest.
+                             # Pruning happens after the new save completes, so disk
+                             # transiently holds 2 checkpoints and a crash mid-save
+                             # cannot destroy the previous good one.
+
+all_block_size_tensors: False
+pack_sequences: True
+
+data_config:
+  train_data:
+    - type: pqds-pure
+      prefix: ""
+      weight: 1
+      data_dir: "${PARCAE_DATA}/fineweb-edu-350b-fixed-train"
+      data_signature:
+        keys: ["text"]
+  val_data:
+    - type: pqds-pure
+      prefix: ""
+      weight: 1
+      data_dir: "${PARCAE_DATA}/fineweb-edu-100b-shuffle/val-resharded"
+      data_signature:
+        keys: ["text"]
+
+tokenizer_path: "${PARCAE_DATA}/tokenizer/parcae_tokenizer"

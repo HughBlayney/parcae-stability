@@ -183,6 +183,7 @@ class CLISettings:
     save_first_step: bool = False  # Whether to save the checkpoint at the first step
     save_last_step: bool = False  # Whether to save the checkpoint at the last step
     save_n_min_before_job_done: Optional[int] = None  # Save the checkpoint n minutes before current job done
+    keep_last_n_checkpoints: int = 0  # Delete older checkpoints, keeping only the N newest. 0 = keep every checkpoint (default).
     measure_utilization: bool = True  # Print FLOPs and MFU
     partial_depth_eval: list[int] = field(default_factory=list)  # don't merge this into main
 
@@ -190,6 +191,12 @@ class CLISettings:
     # PKDS arguments:
     shuffle_filenames: bool = True  # (PKDS only.) Shuffle filenames glob'd up for each prefix
     shuffle_blocks: bool = True  # (PKDS only.) Whether to shuffle the blocks in files.
+    # (PKDS only.) Files are handed to ranks as files[rank::max(this, world_size)]. Reserving slices
+    # for a larger rank count keeps the file->rank mapping stable if you later resume the run on more
+    # GPUs -- but at fewer ranks than this, the reserved slices are simply never read. At 4 ranks the
+    # default of 8 leaves HALF the shards unopened. Set 0 to shard by world_size and use every file
+    # (at the cost of not being able to resume on a different number of ranks).
+    plan_for_later_rank_expansion_to: int = 8
     # HFDS arguments:
     pad_to_block_size: bool = False  # Whether to pad to the block size (HFDS only).
     add_bos: bool = True  # Whether to add the BOS token to the input (HFDS only).
@@ -197,6 +204,10 @@ class CLISettings:
     # BOS-aligned best-fit packing (nanochat-style): packs documents to 100% utilization, no padding.
     pack_sequences: bool = False  # Whether to use best-fit document packing instead of padding.
     pack_buffer_size: int = 1000  # Number of documents to buffer for best-fit selection.
+    # ParquetStreamPure partitions parquet files across ranks with stride max(this, world_size); files whose index
+    # mod stride >= world_size are never read. 8 (upstream default) lets a run resume on up to 8 ranks with the same
+    # file assignment; set 0 to use exactly world_size so every downloaded shard is used (needs >= world_size files).
+    parquet_rank_expansion: int = 8
     data_signature: dict[str, list[str] | str] = field(
         default_factory=lambda: {"keys": ["text"], "format_fn": "pass_text"}
     )  # The data signature to use for processing rows of the dataset. Can be set individually per dataset. (HFDS only).
@@ -295,6 +306,10 @@ class CLISettings:
     def _expand_paths(self):
         self.train_data_dir = os.path.expandvars(self.train_data_dir) if self.train_data_dir is not None else ""
         self.val_data_dir = os.path.expandvars(self.val_data_dir) if self.val_data_dir is not None else ""
+        # Allow env vars (e.g. ${PARCAE_DATA}) in the tokenizer path too, so configs need not
+        # hardcode an absolute location. Native (no-docker) runs rely on this.
+        if self.tokenizer_path:
+            self.tokenizer_path = os.path.expandvars(self.tokenizer_path)
         for entry in self.data_config["train_data"] + self.data_config["val_data"]:
             if entry.data_dir is not None:
                 entry.data_dir = os.path.expandvars(entry.data_dir)

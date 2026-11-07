@@ -451,12 +451,18 @@ class LightningFabric:
 
     def log_to_summary(self, dict_of_values):
         if self.global_rank == 0:
-            for key, value in dict_of_values.items():
-                self.loggers[0].experiment.summary[key] = value
+            experiment = self.loggers[0].experiment
+            if hasattr(experiment, "summary"):  # wandb
+                for key, value in dict_of_values.items():
+                    experiment.summary[key] = value
+            else:  # e.g. CSVLogger: record summary values as a metrics row without a step
+                self.loggers[0].log_metrics({f"summary/{k}": v for k, v in dict_of_values.items()})
 
     def log_chart(self, dict_of_charts):
         if self.global_rank == 0:
-            self.loggers[0].experiment.log(dict_of_charts)
+            experiment = self.loggers[0].experiment
+            if hasattr(experiment, "log"):
+                experiment.log(dict_of_charts)
 
     def setup(self, model: torch.nn.Module, compile: bool = False, compile_ddp: bool = True):
         """Compiling DDP turns out not to improve speed on the A6000 ada cards"""

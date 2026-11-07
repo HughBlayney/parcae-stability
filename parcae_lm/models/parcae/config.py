@@ -29,6 +29,13 @@ class ParcaeConfig(Config):
     curriculum_target: Literal["forward", "backward", "both"] = "forward"  # what to schedule in curriculum
     # Gradient flow control
     recurrent_iteration_method: Literal["per-batch", "per-sequence", "per-token"] = "per-batch"
+    # --- stability-extrapolation experiment knobs (see stability_extrapolation_plan.md) ---
+    # If set, the diagonal injection uses this scalar as the state-carry multiplier for every channel
+    # (x_{t+1} = rho * x_t + dt * B e) instead of the learned exp(-dt * exp(A_log)); A_log is not created.
+    injection_fixed_decay: Optional[float] = None
+    # If set, the sampled training recurrence T (no-grad + grad steps) is clamped to <= this value.
+    # Only affects the poisson-truncated-full sampler; eval depth is unaffected.
+    max_recurrence: Optional[int] = None
     qk_norm: bool = False
     activation_checkpoint_impl: str = "per-iteration"
     tie_embeddings: bool = False
@@ -39,6 +46,12 @@ class ParcaeConfig(Config):
 
     def __post_init__(self):
         super().__post_init__()
+
+        if self.injection_fixed_decay is not None:
+            assert self.injection_type == "diagonal", "injection_fixed_decay only applies to injection_type='diagonal'"
+            assert self.injection_fixed_decay > 0, f"injection_fixed_decay must be > 0, got {self.injection_fixed_decay}"
+        if self.max_recurrence is not None:
+            assert self.max_recurrence >= 1, f"max_recurrence must be >= 1, got {self.max_recurrence}"
 
         effective_expected_depth = (
             self.n_layers_in_prelude + self.n_layers_in_coda + self.n_layers_in_recurrent_block * self.mean_recurrence

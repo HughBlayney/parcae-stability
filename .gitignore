@@ -36,3 +36,5 @@ temporary/
 *.parquet
 *.log
 *.pdf
+slurm_err/
+slurm_out/
